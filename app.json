@@ -15,6 +15,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.x4pro.nutrition"
+      
     },
     "web": {
       "bundler": "metro",
