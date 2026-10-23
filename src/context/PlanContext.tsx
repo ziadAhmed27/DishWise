@@ -1,12 +1,12 @@
+import { GEMINI_PROXY_URL } from '@/constants/api';
 import { SYSTEM_PROMPT } from '@/constants/prompt';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 
 /* ------------------------------- Config ---------------------------------- */
 
-// Low-cost Gemini model. Change here if you want another one (e.g. 'gemini-2.5-flash').
-const MODEL = 'gemini-3.5-flash-lite';
-const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY; // set in .env (see notes)
+// Requests go through the Cloudflare Worker (see constants/api.ts).
+// The API key and the model name live in the Worker, not in the app.
 
 // How many times to try before showing an error (parse / truncation failures only).
 const MAX_ATTEMPTS = 2;
@@ -200,6 +200,9 @@ function dropPrematureRootClose(s: string) {
   return out;
 }
 
+/** Errors worth an automatic second attempt (bad/cut-off output). HTTP/key errors are NOT retried. */
+class RetryableError extends Error {}
+
 /** Pulls the JSON object out of a model reply, even with fences, extra text or a stray brace. */
 function parseModelJson(raw: string) {
   const s = raw.replace(/```json|```/gi, '').trim();
@@ -221,9 +224,6 @@ function parseModelJson(raw: string) {
     }
   }
 }
-
-/** Errors worth an automatic second attempt (bad/cut-off output). HTTP/key errors are NOT retried. */
-class RetryableError extends Error {}
 
 /* ------------------------------- Provider -------------------------------- */
 
@@ -257,11 +257,6 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const generatePlan = useCallback(
     async (profile: ProfileInput) => {
       if (!health) return;
-      if (!API_KEY) {
-        setStatus('error');
-        setError('Missing API key. Add EXPO_PUBLIC_GEMINI_API_KEY to your .env file.\nمفتاح الـ API ناقص.');
-        return;
-      }
       setStatus('loading');
       setError('');
 
@@ -283,24 +278,21 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
       // One full request: fetch → read all text parts → parse → validate.
       const requestPlan = async (): Promise<Plan> => {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: SYSTEM_PROMPT + BILINGUAL_RULES }] },
-              contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
-              generationConfig: {
-                temperature: 0.3,
-                // English + Arabic across 4 meals is long, and thinking tokens can share this budget.
-                maxOutputTokens: 8192,
-                responseMimeType: 'application/json',
-                responseSchema: PLAN_SCHEMA,
-              },
-            }),
-          }
-        );
+        const res = await fetch(GEMINI_PROXY_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: SYSTEM_PROMPT + BILINGUAL_RULES }] },
+            contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
+            generationConfig: {
+              temperature: 0.3,
+              // English + Arabic across 4 meals is long, and thinking tokens can share this budget.
+              maxOutputTokens: 8192,
+              responseMimeType: 'application/json',
+              responseSchema: PLAN_SCHEMA,
+            },
+          }),
+        });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error?.message ?? `Request failed (${res.status})`);
 
@@ -340,7 +332,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           return;
         } catch (e: any) {
           lastError = e;
-          if (!(e instanceof RetryableError)) break; // network / key / quota errors: don't retry
+          if (!(e instanceof RetryableError)) break; // network / quota errors: don't retry
         }
       }
 

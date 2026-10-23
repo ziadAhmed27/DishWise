@@ -1,8 +1,8 @@
 // Gemini helper: estimate nutrition for ONE food entry AND rate it against the user's diet plan.
-// Put your key in .env as EXPO_PUBLIC_GEMINI_API_KEY (restart `expo start` after).
+// All requests go through the Cloudflare Worker (see constants/api.ts). The API key and the
+// model name live in the Worker, so nothing secret is stored in the app.
 
-const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
-const MODEL = 'gemini-3.5-flash-lite'; // same model as the diet plan
+import { GEMINI_PROXY_URL } from '@/constants/api';
 
 export type Nutrients = {
   kcal: number;
@@ -54,8 +54,6 @@ export async function analyzeFood(
   amount: string,
   ctx?: FoodContext
 ): Promise<FoodAnalysis> {
-  if (!API_KEY) throw new Error('Missing EXPO_PUBLIC_GEMINI_API_KEY');
-
   const hasConditions = !!ctx && (ctx.conditions.length > 0 || !!ctx.other?.trim());
   const person = ctx
     ? `\nPERSON: ${JSON.stringify({
@@ -102,36 +100,33 @@ export async function analyzeFood(
     classify +
     `\nReply with JSON only.`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2048,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              kcal: { type: 'NUMBER' },
-              p: { type: 'NUMBER' },
-              c: { type: 'NUMBER' },
-              f: { type: 'NUMBER' },
-              fiber: { type: 'NUMBER' },
-              sugar: { type: 'NUMBER' },
-              rating: { type: 'STRING', enum: ['green', 'normal', 'red'] },
-              reason_en: { type: 'STRING' },
-              reason_ar: { type: 'STRING' },
-            },
-            required: ['kcal', 'p', 'c', 'f', 'fiber', 'sugar', 'rating', 'reason_en', 'reason_ar'],
+  const res = await fetch(GEMINI_PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 2048,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            kcal: { type: 'NUMBER' },
+            p: { type: 'NUMBER' },
+            c: { type: 'NUMBER' },
+            f: { type: 'NUMBER' },
+            fiber: { type: 'NUMBER' },
+            sugar: { type: 'NUMBER' },
+            rating: { type: 'STRING', enum: ['green', 'normal', 'red'] },
+            reason_en: { type: 'STRING' },
+            reason_ar: { type: 'STRING' },
           },
+          required: ['kcal', 'p', 'c', 'f', 'fiber', 'sugar', 'rating', 'reason_en', 'reason_ar'],
         },
-      }),
-    }
-  );
+      },
+    }),
+  });
 
   if (!res.ok) throw new Error(`Gemini error ${res.status}`);
   const data = await res.json();
@@ -160,6 +155,7 @@ export async function analyzeFood(
     reason,
   };
 }
+
 /* -------------------------------------------------------------------------- */
 /*  Chat assistant (answers using the user's profile + medical history)       */
 /* -------------------------------------------------------------------------- */
@@ -211,8 +207,6 @@ function buildChatSystemPrompt(ctx: ChatContext): string {
 
 /** Send the conversation so far and get a bilingual reply. */
 export async function askAssistant(history: ChatTurn[], ctx: ChatContext): Promise<BiText> {
-  if (!API_KEY) throw new Error('Missing EXPO_PUBLIC_GEMINI_API_KEY');
-
   // Gemini wants user/model turns starting with a user turn; merge same-role neighbours.
   const contents: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
   for (const t of history.slice(-12)) {
@@ -223,27 +217,24 @@ export async function askAssistant(history: ChatTurn[], ctx: ChatContext): Promi
   }
   if (!contents.length || contents[contents.length - 1].role !== 'user') throw new Error('No user message');
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: buildChatSystemPrompt(ctx) }] },
-        contents,
-        generationConfig: {
-          temperature: 0.5,
-          maxOutputTokens: 2048,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: { en: { type: 'STRING' }, ar: { type: 'STRING' } },
-            required: ['en', 'ar'],
-          },
+  const res = await fetch(GEMINI_PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: buildChatSystemPrompt(ctx) }] },
+      contents,
+      generationConfig: {
+        temperature: 0.5,
+        maxOutputTokens: 2048,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: { en: { type: 'STRING' }, ar: { type: 'STRING' } },
+          required: ['en', 'ar'],
         },
-      }),
-    }
-  );
+      },
+    }),
+  });
 
   if (!res.ok) throw new Error(`Gemini error ${res.status}`);
   const data = await res.json();

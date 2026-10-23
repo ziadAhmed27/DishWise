@@ -1,0 +1,1 @@
+export const GEMINI_PROXY_URL = 'https://dishwise-proxy.ziadahmad2793.workers.dev';
