@@ -17,7 +17,6 @@
       "package": "com.x4pro.nutrition"
     },
     "web": {
-      "publicPath": "/DishWise/",
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
@@ -40,7 +39,8 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": true,
+      "baseUrl": "/DishWise"
     },
     "extra": {
       "router": {},

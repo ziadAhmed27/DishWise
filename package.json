@@ -41,7 +41,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "deploy": "npx expo export --platform web && copy dist\\index.html dist\\404.html && npx gh-pages -d dist",
+    "deploy": "npx expo export --platform web && copy dist\\index.html dist\\404.html && type nul > dist\\.nojekyll && npx gh-pages -d dist --dotfiles",
     "lint": "expo lint"
   },
   "private": true
