@@ -17,7 +17,6 @@ type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
 const menu: { key: string; en: string; ar: string; icon: IconName }[] = [
   { key: 'goals', en: 'Goals', ar: 'الأهداف', icon: 'flag-outline' },
-  { key: 'notifications', en: 'Notifications', ar: 'الإشعارات', icon: 'notifications-outline' },
   { key: 'settings', en: 'Settings', ar: 'الإعدادات', icon: 'settings-outline' },
 ];
 
